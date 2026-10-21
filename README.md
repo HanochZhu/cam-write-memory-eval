@@ -19,14 +19,14 @@
 
 ## 四篇笔记
 
-笔记是手工标注的，金标在 `cases.json`。
+笔记从公开仓库 [codeagent_memory](https://github.com/HanochZhu/codeagent_memory) 的源码和 README 整理，金标在 `cases.json`。每条短语都能在出处文件里对上。
 
-| 笔记 | 期望 | 金标 |
-| --- | --- | --- |
-| `tool-truncation` | 拆开 | 七条事实：预算、尾部文件、实验开关、媒体上限、已删除的批量上限、shell、Unity。其中四组应当互连。 |
-| `lsp-toast` | 留在一条 | 一个 bug 的完整解决路径。拆开就算错。 |
-| `recall-and-forgetting` | 拆开 | 两套机制，并且应当互连。 |
-| `read-and-delete` | 拆开 | 两条互不相关的策略。 |
+| 笔记 | 期望 | 金标 | 出处 |
+| --- | --- | --- | --- |
+| `recall-pipeline` | 拆开 | 七条事实：RRF、两路门槛、snippet 截断、默认向量模型、hash 开关、拒绝回退、召回不走 `solution_links`。其中四组应当互连。 | `src/memory/recall`、`src/memory/embed.rs` |
+| `stale-binary` | 留在一条 | 一个问题的解决路径：可执行文件换了之后，MCP 在工具结果里附上重启提示。拆开就算错。 | `src/mcp.rs` |
+| `recall-and-forgetting` | 拆开 | 融合常数和遗忘曲线两套机制，并且应当互连。 | `src/memory/recall/fuse.rs`、`src/memory/ebbinghaus.rs` |
+| `read-and-delete` | 拆开 | `cam read` 的读法，以及记忆不删除。两条互不相关。 | 仓库 README |
 
 ## 怎么记分
 
@@ -34,18 +34,7 @@
 
 一条金标事实被覆盖，是指有一条记忆包含它要求的全部短语。它算独占，是指这条记忆里没有另一条金标事实。要求的链接算命中，是指这两条记忆之间有边，或者两条事实落在同一条记忆里。
 
-短语用的是标识符（`buildOversizedToolResultOutputs`、`S * 1.7`）。模型换一种说法、把短语丢掉，就算漏。这会低估流畅改写，但能看出一条正文是不是塞进了好几条事实。
-
-## 一次结果
-
-`deepseek-flash`，2026-10-21，hash embedder，四篇笔记：
-
-| 写法 | 平均条数 | 最长正文 | 覆盖率 | 独占率 |
-| --- | ---: | ---: | ---: | ---: |
-| `legacy` | 1.0 | 845 字 | 0.88 | 0.38 |
-| `split` | 3.5 | 370 字 | 0.62 | **0.62** |
-
-split 把截断那篇拆成 8 条，LSP 修复仍是 1 条。该连的 4 组边一条都没连上。覆盖率下降，是因为有的金标短语被拆到不同记忆里，或者被换了说法。两边都漏掉了「记忆不删除」这条策略。这条规则能拆开长正文，还没能让模型把拆开的事实连起来。
+短语用的是公开源码里的标识符（`RRF_K`、`S * 1.7`）。模型换一种说法、把短语丢掉，就算漏。这会低估流畅改写，但能看出一条正文是不是塞进了好几条事实。
 
 ## 运行
 
@@ -54,7 +43,7 @@ split 把截断那篇拆成 8 条，LSP 修复仍是 1 条。该连的 4 组边�
 ```bash
 python3 test_score.py
 python3 run.py
-MODEL=deepseek-flash python3 run.py --arm split --case tool-truncation
+MODEL=deepseek-flash python3 run.py --arm split --case recall-pipeline
 ```
 
 默认模型是 `deepseek-flash`。写入走 `cam mcp`，向量用 hash embedder，项目目录是临时的。每次运行的明细写到 `results/`，该目录不入库。
@@ -67,4 +56,4 @@ The other cam benchmarks store text the harness already wrote. This set gives an
 
 Scoring is lexical. A gold fact is covered when one memory contains every required phrase, and exclusive when that memory contains no other gold fact. A required link counts when those memories share an edge, or both facts land in the same memory. Required phrases are identifiers, so a paraphrase that drops them is a miss.
 
-On 2026-10-21, `deepseek-flash` moved the mean exclusive rate from 0.38 to 0.62 and the longest body from 845 to 370 characters. Coverage fell from 0.88 to 0.62. The truncation note became 8 memories, the LSP fix stayed one memory, and none of the 4 expected links were written.
+Every note is public behavior of [codeagent_memory](https://github.com/HanochZhu/codeagent_memory). `recall-pipeline` is seven recall mechanisms and should split. `stale-binary` is one solution path in `src/mcp.rs` and should stay one memory. `recall-and-forgetting` is the fusion constant and the forgetting curve. `read-and-delete` is two unrelated policies from the README.

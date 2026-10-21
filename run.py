@@ -13,7 +13,7 @@ land in the same memory.
 Usage (DEEPSEEK_API_KEY in the environment, .deepseek.env, or .env):
   python3 test_score.py
   python3 run.py
-  python3 run.py --arm split --case tool-truncation
+  python3 run.py --arm split --case recall-pipeline
 
 cam is an external binary. Set CAM_BIN, or have cam on PATH. The split arm
 needs a cam that accepts a memories array on cam_add.

@@ -1,32 +1,35 @@
 [
   {
-    "id": "tool-truncation",
+    "id": "recall-pipeline",
     "expect": "split",
-    "note": "Investigation of default tool-result truncation in codely-cli.\n\nAfter a successful tool call, CoreToolScheduler and nonInteractiveToolExecutor call ToolResultSizeManager.assessToolResultSize. Text tokens are characters divided by 2. sessionTokenLimit defaults to -1, so the session budget is the model limit times 0.7. Regular tools may use max(5000, floor(session * 0.55 * 0.6)), about 33 percent. SubagentToolWrapper gets 90 percent. A calculation failure falls back to 25000 tokens, or 500000 for agents.\n\nWhen the verdict is text-too-large and canReduceToolSource is true, buildOversizedToolResultOutputs writes the full payload under tool-outputs and returns a tail of at most 16000 characters and 1000 lines. A failed write keeps the full payload.\n\ncanReduceToolSource(undefined) is true. With CODELY_COMPACT_EXPERIMENTAL off the source stays undefined, so the tail path is the default. With the flag on, reduction is blocked unless captureStatus is complete_source.\n\nImages and videos use a 5 MB base64 cap and a 20 MB raw cap, and are replaced by a not-sent description.\n\napplyAggregateFunctionResponseBudget no longer enforces the old 200000-character batch bar.\n\nThe shell tool truncates earlier, inside formatLargeTextForModel, at DEFAULT_SHELL_OUTPUT_TAIL_LINES of 1000.\n\nUnity maybeCompressUnityToolOutput is a separate client-side fold and is not this shared gate.",
+    "source": "https://github.com/HanochZhu/codeagent_memory src/memory/recall and src/memory/embed.rs",
+    "note": "How a cam recall result is produced. Each paragraph is a separate mechanism in the public codeagent_memory repository.\n\nFusion uses reciprocal rank fusion. The constant RRF_K is 60. fuse_rrf multiplies the raw sum by k + 1, so a rank-1 hit on one list scores 1 and a rank-1 hit on both lists scores 2 before retention is applied.\n\nEach list is gated before that fusion. A vector hit under VEC_KEEP, 0.8 of that path's best score, is dropped. A BM25 hit under BM25_KEEP, 0.3 of that path's best score, is dropped.\n\nWith snippets, a hit keeps its full body only when its fused relevance is at least FULL_BODY_RATIO 0.99 of the top hit. A longer body is clipped to SNIPPET_CHARS 240 and marked body_truncated. Bodies of 960 characters or fewer stay whole.\n\nStored vectors default to model2vec and minishlab/potion-multilingual-128M.\n\nCAM_HASH_EMBED selects the hash embedder instead of that model.\n\nCAM_REQUIRE_MODEL2VEC refuses the hash fallback when the named model fails to load.\n\nRecall does not walk solution_links. It does follow supersedes to the latest revision.",
     "facts": [
-      {"id": "budget", "must": ["0.55", "25000"], "links": ["tail"]},
-      {"id": "tail", "must": ["buildOversizedToolResultOutputs"], "links": ["budget"]},
-      {"id": "flag", "must": ["CODELY_COMPACT_EXPERIMENTAL", "complete_source"], "links": ["tail"]},
-      {"id": "media", "must": ["5 MB", "20 MB"]},
-      {"id": "batch-bar", "must": ["200000-character"]},
-      {"id": "shell", "must": ["formatLargeTextForModel", "DEFAULT_SHELL_OUTPUT_TAIL_LINES"], "links": ["tail"]},
-      {"id": "unity", "must": ["maybeCompressUnityToolOutput"], "links": ["tail"]}
+      {"id": "rrf", "must": ["RRF_K", "k + 1"], "links": ["gates"]},
+      {"id": "gates", "must": ["VEC_KEEP", "BM25_KEEP"], "links": ["rrf"]},
+      {"id": "snippets", "must": ["FULL_BODY_RATIO", "SNIPPET_CHARS"], "links": ["rrf"]},
+      {"id": "embed", "must": ["potion-multilingual-128M"], "links": ["hash-flag"]},
+      {"id": "hash-flag", "must": ["CAM_HASH_EMBED"], "links": ["embed"]},
+      {"id": "require-model", "must": ["CAM_REQUIRE_MODEL2VEC"], "links": ["hash-flag"]},
+      {"id": "no-link-walk", "must": ["solution_links"]}
     ]
   },
   {
-    "id": "lsp-toast",
+    "id": "stale-binary",
     "expect": "keep",
-    "note": "Bug: Cowork shows a C# LSP install-failure toast even when the server binary is bundled with the app.\n\nCause: Hub restore never loads the LSP manager, then the UI looks up codely-unity-lsp-server on PATH and reports it missing.\n\nFix: load the LSP manager while restoring the newest workspace, and skip the PATH check when the binary is bundled.\n\nCheck: open a workspace that vendors the LSP and confirm the install-failure toast does not appear.",
+    "source": "https://github.com/HanochZhu/codeagent_memory src/mcp.rs",
+    "note": "Bug: after the cam executable on disk is replaced, the running MCP process keeps serving the old build.\n\nCause: startup records a BinaryStamp of current_exe and its mtime, and the process does not exit when that file later changes.\n\nChange: serverInfo.version is the package version plus the git hash recorded at build time. When a later tool call sees a different mtime, the tool result adds a second text block whose text is exactly cam 已更新，请重启 MCP 服务.\n\nCheck: replace the binary, call any tool, and confirm the result has two content blocks and the second block is that sentence. The process is still running.",
     "facts": [
       {
-        "id": "toast-fix",
-        "must": ["LSP manager", "PATH check", "install-failure toast"]
+        "id": "restart-notice",
+        "must": ["BinaryStamp", "serverInfo.version", "cam 已更新，请重启 MCP 服务"]
       }
     ]
   },
   {
     "id": "recall-and-forgetting",
     "expect": "split",
+    "source": "https://github.com/HanochZhu/codeagent_memory src/memory/recall/fuse.rs and src/memory/ebbinghaus.rs",
     "note": "cam recall fuses BM25 and vectors with reciprocal rank fusion. The constant k is 60, and the fused score is scaled by k+1 so a document that is first on both lists scores 2.\n\nA separate mechanism forgets. Ebbinghaus stability S starts at 7 days. A successful recall sets S to S * 1.7. needs_update becomes true when retention falls below 0.3.",
     "facts": [
       {"id": "rrf", "must": ["k is 60", "k+1"], "links": ["forgetting"]},
@@ -36,6 +39,7 @@
   {
     "id": "read-and-delete",
     "expect": "split",
+    "source": "https://github.com/HanochZhu/codeagent_memory README.md",
     "note": "cam read returns an outline for a file path and the symbol body for a symbol path. The full flag reads the whole file only when the argument is a file path, not a symbol path.\n\nUnrelated policy: memories are never deleted. Replacing one uses cam add --supersedes with the old id. parent only places the memory in the structural tree.",
     "facts": [
       {"id": "read", "must": ["outline", "symbol body", "full flag"]},
