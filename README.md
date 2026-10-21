@@ -1,44 +1,74 @@
-# 模型自己写记忆
+[English](README.md) · [中文](README.zh.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [العربية](README.ar.md)
 
-这是测评集本身，不是运行脚本。笔记在 `cases.json`。[codeagent_memory](https://github.com/HanochZhu/codeagent_memory) 的 `eval/write_memory/run.py` 第一次运行时从这里下载这份文件，再让模型写入并记分。路径登记在那边的 `eval/datasets.toml`，可用 `CAM_EVAL_WRITE_MEMORY` 覆盖。
+# Model-written memories
 
-这套测评问的是：一条记忆的边界由谁来划。
+Who decides where one memory ends.
 
-[cam](https://github.com/HanochZhu/codeagent_memory) 里已有的评测都是测试框架写好正文，再调用 `cam add`。没有一个让模型自己决定一条记忆写到哪里为止。这里把一篇排查笔记交给模型，让它通过 `cam mcp` 自己调用 `cam_add`，写进一个临时项目。
+This repository is the case set. The notes are [`cases.json`](cases.json). The runner lives in [codeagent_memory](https://github.com/HanochZhu/codeagent_memory) at `eval/write_memory` and downloads this file on first use. The same runner is also in this repository.
 
-## 两种写法
+## Contents
 
-两种写法看同一批笔记，工具也相同。差别只在指令，以及 `legacy` 看不到 `memories` 参数。
+- [What it measures](#measure)
+- [Two arms](#arms)
+- [Notes](#notes)
+- [Scoring](#scoring)
+- [Run](#run)
 
-| 写法 | 指令 |
+<a id="measure"></a>
+
+## What it measures
+
+The other cam benchmarks store text the harness already wrote, then call `cam add`. None of them ask a model to decide where one memory stops. Here the model receives one investigation note and calls `cam_add` itself, through `cam mcp`, into a throwaway project.
+
+<a id="arms"></a>
+
+## Two arms
+
+Both arms see the same notes and the same tool. The difference is the instruction. `legacy` is also not shown the `memories` parameter.
+
+| Arm | Instruction |
 | --- | --- |
-| `legacy` | 只存一条记忆，正文是整篇调查。 |
-| `split` | 一条记忆是一条事实，或一个问题的解决路径（现象、原因、改法、如何验证）。两段内容能分别被问到，或者会分别过时，就分开存。同一次解决得到的多条放进一次 `cam_add` 的 `memories`，用 `#0`、`#1` 在 `links` 里互指。 |
+| `legacy` | Store one memory. The body is the full investigation. |
+| `split` | One memory is one fact, or the solution path for one problem (symptom, cause, change, and how to verify). If two pieces can be asked about separately, or can become outdated separately, store them apart. Several memories from the same solution go in one `cam_add` as `memories`, using `#0`, `#1`, ... for `links`. |
 
-`split` 的这句话和 cam 写回指令一致：能分别被问到，或者会分别过时，就分开存。
+The `split` sentence is the cam write-back rule.
 
-## 四篇笔记
+<a id="notes"></a>
 
-笔记从公开仓库 [codeagent_memory](https://github.com/HanochZhu/codeagent_memory) 的源码和 README 整理，金标在 `cases.json`。每条短语都能在出处文件里对上。
+## Notes
 
-| 笔记 | 期望 | 金标 | 出处 |
+The four notes are public behavior of [codeagent_memory](https://github.com/HanochZhu/codeagent_memory). Every required phrase occurs in the cited file. Each case's `source` field records that path.
+
+| Note | Expect | Gold | Source |
 | --- | --- | --- | --- |
-| `recall-pipeline` | 拆开 | 七条事实：RRF、两路门槛、snippet 截断、默认向量模型、hash 开关、拒绝回退、召回不走 `solution_links`。其中四组应当互连。 | `src/memory/recall`、`src/memory/embed.rs` |
-| `stale-binary` | 留在一条 | 一个问题的解决路径：可执行文件换了之后，MCP 在工具结果里附上重启提示。拆开就算错。 | `src/mcp.rs` |
-| `recall-and-forgetting` | 拆开 | 融合常数和遗忘曲线两套机制，并且应当互连。 | `src/memory/recall/fuse.rs`、`src/memory/ebbinghaus.rs` |
-| `read-and-delete` | 拆开 | `cam read` 的读法，以及记忆不删除。两条互不相关。 | 仓库 README |
+| `recall-pipeline` | split | Seven facts: RRF, the two gates, snippet clipping, the default embedding model, the hash switch, refusing fallback, and that recall does not walk `solution_links`. Four pairs should be linked. | `src/memory/recall`, `src/memory/embed.rs` |
+| `stale-binary` | keep | One solution path: after the executable changes, MCP adds a restart notice to the tool result. Splitting it is a miss. | `src/mcp.rs` |
+| `recall-and-forgetting` | split | The fusion constant and the forgetting curve, linked to each other. | `src/memory/recall/fuse.rs`, `src/memory/ebbinghaus.rs` |
+| `read-and-delete` | split | How `cam read` works, and that memories are never deleted. The two policies are unrelated. | repository `README.md` |
 
-## 怎么记分
+<a id="scoring"></a>
 
-记分不另请一个模型，规则在 `score.py`。
+## Scoring
 
-一条金标事实被覆盖，是指有一条记忆包含它要求的全部短语。它算独占，是指这条记忆里没有另一条金标事实。要求的链接算命中，是指这两条记忆之间有边，或者两条事实落在同一条记忆里。
+[`score.py`](score.py) scores the stored memories. It does not call another model.
 
-短语用的是公开源码里的标识符（`RRF_K`、`S * 1.7`）。模型换一种说法、把短语丢掉，就算漏。这会低估流畅改写，但能看出一条正文是不是塞进了好几条事实。
+| Outcome | Rule |
+| --- | --- |
+| Covered | One memory contains every required phrase of the fact. |
+| Exclusive | That memory contains no other gold fact. |
+| Link | The two memories share an edge, or both facts landed in the same memory. |
 
-## 运行
+The phrases are identifiers from the public source (`RRF_K`, `S * 1.7`). A paraphrase that drops them counts as a miss. That under-counts a fluent rewrite, and it shows whether one body is holding several facts.
 
-需要一个会接受 `memories` 数组的 `cam`。`0.1.5` 还没有这个参数。设置 `CAM_BIN`，或者让这个 `cam` 出现在 `PATH` 上。密钥放在环境变量、`.deepseek.env` 或 `.env` 里，这三个文件不会被提交。
+<a id="run"></a>
+
+## Run
+
+`cam` must accept a `memories` array. Release `0.1.5` does not. Set `CAM_BIN`, or put that binary on `PATH`.
+
+Put `DEEPSEEK_API_KEY` in the environment, `.deepseek.env`, or `.env`. Those files are gitignored. The default model is `deepseek-flash`. `MODEL` overrides it. Writes use `cam mcp` and the hash embedder. The project directory is temporary. Each run writes JSON under `results/`, which is gitignored.
+
+From this repository:
 
 ```bash
 python3 test_score.py
@@ -46,14 +76,11 @@ python3 run.py
 MODEL=deepseek-flash python3 run.py --arm split --case recall-pipeline
 ```
 
-默认模型是 `deepseek-flash`。写入走 `cam mcp`，向量用 hash embedder，项目目录是临时的。每次运行的明细写到 `results/`，该目录不入库。
+From a codeagent_memory checkout, the runner downloads `cases.json` to `eval/write_memory/data/` on first use. `CAM_EVAL_WRITE_MEMORY` overrides that path.
 
-## Design
+```bash
+python3 eval/write_memory/test_score.py
+python3 eval/write_memory/run.py
+```
 
-The other cam benchmarks store text the harness already wrote. This set gives an investigation note to a model and lets the model call `cam_add` through `cam mcp`.
-
-`legacy` asks for one full write-up and hides the `memories` parameter. `split` states the current rule: one memory is one fact, or the solution path for one problem. Pieces that can be asked about separately, or that can become outdated separately, are stored apart and linked with `#0`, `#1`, ... inside one `cam_add`.
-
-Scoring is lexical. A gold fact is covered when one memory contains every required phrase, and exclusive when that memory contains no other gold fact. A required link counts when those memories share an edge, or both facts land in the same memory. Required phrases are identifiers, so a paraphrase that drops them is a miss.
-
-Every note is public behavior of [codeagent_memory](https://github.com/HanochZhu/codeagent_memory). `recall-pipeline` is seven recall mechanisms and should split. `stale-binary` is one solution path in `src/mcp.rs` and should stay one memory. `recall-and-forgetting` is the fusion constant and the forgetting curve. `read-and-delete` is two unrelated policies from the README.
+`test_score.py` does not call the model.
