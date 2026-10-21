@@ -1,5 +1,7 @@
 # 模型自己写记忆
 
+这是测评集本身，不是运行脚本。笔记在 `cases.json`。[codeagent_memory](https://github.com/HanochZhu/codeagent_memory) 的 `eval/write_memory/run.py` 第一次运行时从这里下载这份文件，再让模型写入并记分。路径登记在那边的 `eval/datasets.toml`，可用 `CAM_EVAL_WRITE_MEMORY` 覆盖。
+
 这套测评问的是：一条记忆的边界由谁来划。
 
 [cam](https://github.com/HanochZhu/codeagent_memory) 里已有的评测都是测试框架写好正文，再调用 `cam add`。没有一个让模型自己决定一条记忆写到哪里为止。这里把一篇排查笔记交给模型，让它通过 `cam mcp` 自己调用 `cam_add`，写进一个临时项目。
